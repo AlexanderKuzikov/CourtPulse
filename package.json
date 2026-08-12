@@ -1,0 +1,15 @@
+{
+  "name": "court-pulse",
+  "version": "0.1.0",
+  "description": "Мониторинг доступности сайтов судов ГАС «Правосудие» (Пермский край, регион 59)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "once": "node --experimental-strip-types src/index.ts --once"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

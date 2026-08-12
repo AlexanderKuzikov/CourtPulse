@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CourtPulse — доступность судов Пермского края</title>
+<link rel="stylesheet" href="/libs/uPlot.min.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">CourtPulse</div>
+  <div class="sub">Доступность сайтов судов ГАС «Правосудие» · Пермский край (59)</div>
+  <div class="ticker" id="ticker"></div>
+</header>
+
+<section class="kpis" id="kpis"></section>
+
+<section class="panel">
+  <h2>Доступность региона за 7 дней</h2>
+  <div id="chart7" class="chart"></div>
+</section>
+
+<section class="panel">
+  <h2>Суды</h2>
+  <div class="filters">
+    <input id="q" type="search" placeholder="Поиск: участок, суд, host…" autocomplete="off">
+    <select id="fType"><option value="">Все типы</option></select>
+    <select id="fStatus"><option value="">Все статусы</option></select>
+  </div>
+  <table class="courts" id="courts">
+    <thead><tr>
+      <th>Суд</th><th>Тип</th><th>Статус</th><th>Uptime 24ч</th>
+      <th>Пробы</th><th>Падения</th><th>Отклик</th><th>Последняя проба</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Инциденты (недоступно ≥3 проб подряд)</h2>
+  <table class="incidents" id="incidents">
+    <thead><tr><th>Суд</th><th>Начало</th><th>Конец</th><th>Длительность</th><th>Причина</th><th>Проб</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <button class="close" id="modalClose">×</button>
+    <h3 id="mTitle"></h3>
+    <div id="mChart" class="chart"></div>
+  </div>
+</div>
+
+<script src="/libs/uPlot.iife.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

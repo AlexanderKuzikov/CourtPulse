@@ -1,0 +1,5 @@
+node_modules/
+data/probes/
+data/state.json
+data/incidents.json
+*.log
