@@ -3,8 +3,10 @@ import { Scheduler } from './scheduler.ts';
 import { startApi } from './api.ts';
 
 const once = process.argv.includes('--once');
+const limitArg = process.argv.find(a => a.startsWith('--limit='));
+const limit = limitArg ? Number(limitArg.slice('--limit='.length)) : 0;
 const sched = new Scheduler();
-sched.start(once);
+sched.start(once, limit);
 
 if (!once) {
   startApi(sched);

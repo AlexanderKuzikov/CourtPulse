@@ -68,6 +68,7 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
     });
     req.setTimeout(timeoutMs, () => req.destroy(new Error('http timeout')));
     req.on('error', reject);
+    req.end();
   });
 }
 

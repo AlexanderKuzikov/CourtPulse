@@ -16,9 +16,10 @@ export class Scheduler {
   private running = false;
   onProbe?: (p: ProbeResult, court: CourtTarget) => void;
 
-  start(once = false): void {
+  start(once = false, limit = 0): void {
     ensureDirs();
     this.courts = loadRegionCourts();
+    if (limit > 0) this.courts = this.courts.slice(0, limit);
     console.log(`[pulse] регион ${CONFIG.region}: ${this.courts.length} судов, интервал ${CONFIG.probeIntervalMs / 60000} мин`);
 
     if (once) {
