@@ -1,5 +1,5 @@
 // Загрузка справочника судов и выборка региона
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { CONFIG } from './config.ts';
 
 export type CourtTarget = {
@@ -30,7 +30,11 @@ function hostFromWebsite(website: string): string {
 }
 
 export function loadRegionCourts(): CourtTarget[] {
-  const raw = JSON.parse(readFileSync(`${CONFIG.dataDir}/courts.json`, 'utf-8')) as { courts: RawCourt[] };
+  const path = `${CONFIG.dataDir}/courts.json`;
+  if (!existsSync(path)) {
+    throw new Error(`нет ${path} — положи справочник судов (копия из CourtDesk: packages/core/data/courts.json)`);
+  }
+  const raw = JSON.parse(readFileSync(path, 'utf-8')) as { courts: RawCourt[] };
   const seen = new Set<string>();
   const out: CourtTarget[] = [];
 

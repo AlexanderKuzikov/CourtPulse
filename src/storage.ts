@@ -1,5 +1,5 @@
 // Хранилище: JSONL-пробы по дням, снапшот последних статусов, инциденты
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG } from './config.ts';
 import type { ProbeResult } from './probe.ts';
@@ -19,6 +19,13 @@ const probesDir = () => join(CONFIG.dataDir, 'probes');
 const statePath = () => join(CONFIG.dataDir, 'state.json');
 const incidentsPath = () => join(CONFIG.dataDir, 'incidents.json');
 
+/** Атомарная запись JSON: tmp + rename — крэш посреди записи не портит файл */
+function writeJsonAtomic(file: string, data: unknown): void {
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data), 'utf-8');
+  renameSync(tmp, file);
+}
+
 export function ensureDirs(): void {
   mkdirSync(probesDir(), { recursive: true });
 }
@@ -37,7 +44,7 @@ export function loadState(): State {
 }
 
 export function saveState(s: State): void {
-  writeFileSync(statePath(), JSON.stringify(s), 'utf-8');
+  writeJsonAtomic(statePath(), s);
 }
 
 // ─── Инциденты ───
@@ -47,7 +54,7 @@ export function loadIncidents(): Incident[] {
 }
 
 export function saveIncidents(inc: Incident[]): void {
-  writeFileSync(incidentsPath(), JSON.stringify(inc), 'utf-8');
+  writeJsonAtomic(incidentsPath(), inc);
 }
 
 /** Прочитать пробы за N дней, опционально по одному суду */

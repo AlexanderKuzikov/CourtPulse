@@ -54,6 +54,7 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
   return new Promise((resolve, reject) => {
     const req = fn({
       host, port, path: '/', method: 'GET',
+      agent: false, // CR: глобальный keep-alive агент держит сокеты — утечка FD
       headers: {
         'User-Agent': CONFIG.userAgent,
         Accept: 'text/html,application/xhtml+xml,*/*;q=0.8',
@@ -63,11 +64,12 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
     }, res => {
       let bytes = 0;
       res.on('data', c => { bytes += c.length; });
-      res.on('end', () => resolve({ code: res.statusCode ?? 0, bytes }));
-      res.on('error', reject);
+      res.on('end', () => { clearTimeout(timer); resolve({ code: res.statusCode ?? 0, bytes }); });
+      res.on('error', e => { clearTimeout(timer); reject(e); });
     });
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('http timeout')));
-    req.on('error', reject);
+    // Абсолютный дедлайн (не idle): destroy обязательно, чтобы не течь сокетами
+    const timer = setTimeout(() => req.destroy(new Error('http timeout')), timeoutMs);
+    req.on('error', e => { clearTimeout(timer); reject(e); });
     req.end();
   });
 }
@@ -120,8 +122,11 @@ export async function probeCourt(code: string, host: string): Promise<ProbeResul
       : h.code >= 200 && h.code < 400 ? 'OK'
       : 'HTTP_ERR';
     return { ...base, status, totalMs: Date.now() - start };
-  } catch {
-    return { ...base, status: 'TIMEOUT', totalMs: Date.now() - start };
+  } catch (e) {
+    // CR: классифицируем по тексту — обрыв соединения ≠ таймаут
+    const msg = String((e as Error | undefined)?.message ?? e);
+    const status: ProbeStatus = msg.includes('timeout') ? 'TIMEOUT' : 'HTTP_ERR';
+    return { ...base, status, totalMs: Date.now() - start };
   }
 }
 

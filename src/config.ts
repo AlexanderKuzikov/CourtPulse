@@ -8,10 +8,11 @@ export const CONFIG = {
   port: 8781,
   dataDir: 'data',
   incidentsThreshold: 3,   // N подряд неудач = инцидент
-  // Таймауты этапов пробы (WAF тормозит до 1-2 минут — но главная отвечает быстрее)
-  dnsTimeoutMs: 10_000,
+  // Таймауты этапов пробы (WAF тормозит до 1-2 минут — но главная отвечает быстрее;
+  // срез по ревью Qwen: худшая проба 72с → 56с)
+  dnsTimeoutMs: 5_000,
   connectTimeoutMs: 15_000,
   tlsTimeoutMs: 15_000,
-  httpTimeoutMs: 30_000,
+  httpTimeoutMs: 20_000,
   userAgent: 'CourtPulse/0.1 (+https://github.com/AlexanderKuzikov/CourtPulse)',
 } as const;
