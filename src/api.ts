@@ -142,7 +142,7 @@ function staticFile(res: import('node:http').ServerResponse, path: string): void
   try {
     const st = statSync(file);
     if (!st.isFile()) throw new Error('not file');
-    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'max-age=300' });
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(readFileSync(file));
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

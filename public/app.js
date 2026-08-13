@@ -8,12 +8,32 @@ const STATUS_COLORS = {
   TIMEOUT: '#e74c3c', HTTP_ERR: '#e74c3c', UNKNOWN: '#7f8c8d',
 };
 
+const STATUS_LABELS = {
+  OK: 'Доступен',
+  BANNED: 'WAF-бан',
+  DNS_FAIL: 'DNS-ошибка',
+  CONNECT_FAIL: 'Нет соединения',
+  TLS_FAIL: 'TLS-ошибка',
+  TIMEOUT: 'Таймаут',
+  HTTP_ERR: 'Ошибка HTTP',
+  UNKNOWN: 'Неизвестно',
+};
+
 let courts = [];
 let summary = null;
 
 const fmtTime = ts => ts
   ? new Date(ts).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
   : '—';
+
+// Подписи оси времени uPlot: свой русский формат вместо встроенного US (M/D, h:mm aa)
+const fmtAxisDay = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' });
+const fmtAxisTime = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const fmtAxis = (u, ticks) => {
+  const spanDays = (u.scales.x.max - u.scales.x.min) / 86400;
+  const fmt = spanDays > 2 ? fmtAxisDay : fmtAxisTime;
+  return ticks.map(t => fmt.format(new Date(t * 1000)));
+};
 const fmtMs = ms => ms ? (ms < 1000 ? `${ms} мс` : `${(ms / 1000).toFixed(1)} с`) : '—';
 const fmtDur = ms => {
   if (!ms) return '—';
@@ -74,15 +94,15 @@ async function renderChart7() {
       {
         stroke: '#4f8cff', width: 1.5, fill: 'rgba(79,140,255,.12)',
         points: { show: false },
-        value: v => v == null ? '—' : v.toFixed(0) + '%',
+        value: (u, v) => v == null ? '—' : v.toFixed(0) + '%',
       },
     ],
     axes: [
-      { stroke: '#8a94a3', grid: { stroke: '#232a36' }, size: 40 },
-      { stroke: '#8a94a3', grid: { stroke: '#232a36' }, values: v => v + '%', size: 44 },
+      { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, size: 40, values: fmtAxis },
+      { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, values: v => v + '%', size: 44 },
     ],
   };
-  const u = new uPlot(opts, [ts, data], $('#chart7'));
+  const u = new uPlot(opts, [ts.map(t => t / 1000), data], $('#chart7'));
   // ресайз
   const ro = new ResizeObserver(() => {
     const w = document.querySelector('#chart7').clientWidth;
@@ -94,6 +114,44 @@ async function renderChart7() {
 
 // ─── Таблица судов ───
 let typeFilter = '', statusFilter = '', query = '';
+let sort = { key: 'status', dir: 1 };   // по умолчанию: недоступные сверху
+
+const TYPE_PRIORITY = { 'Краевой': 0, 'Арбитражный': 1, 'Районный': 2, 'Мировой': 3 };
+const STATUS_SEVERITY = {
+  TIMEOUT: 0, HTTP_ERR: 0, CONNECT_FAIL: 0, DNS_FAIL: 0, TLS_FAIL: 0,
+  UNKNOWN: 1, BANNED: 2, OK: 3,
+};
+
+// Числовая колонка: пропуски всегда в конце, направление — только у реальных значений.
+// Для Падений/Проб 0 — валидное значение, пропуск = null; для Отклика/Uptime/Последней пробы 0 = нет данных
+function cmpNumeric(a, b, key, dir) {
+  const miss = key === 'down24h' || key === 'probes24h' ? v => v == null : v => !v;
+  const va = a[key], vb = b[key];
+  if (miss(va)) return miss(vb) ? 0 : 1;
+  if (miss(vb)) return -1;
+  return (va - vb) * dir;
+}
+
+function sortRows(rows) {
+  const { key, dir } = sort;
+  return rows.sort((a, b) => {
+    let r;
+    if (key === 'name') r = a.name.localeCompare(b.name, 'ru', { numeric: true }) * dir;
+    else if (key === 'courtType') r = ((TYPE_PRIORITY[a.courtType] ?? 9) - (TYPE_PRIORITY[b.courtType] ?? 9)) * dir;
+    else if (key === 'status') r = ((STATUS_SEVERITY[a.status] ?? 9) - (STATUS_SEVERITY[b.status] ?? 9)) * dir;
+    else r = cmpNumeric(a, b, key, dir);
+    return r !== 0 ? r : a.code.localeCompare(b.code);
+  });
+}
+
+function renderSortIndicator() {
+  document.querySelectorAll('#courts th[data-key]').forEach(th => {
+    const label = th.dataset.label ?? th.textContent.trim();
+    th.dataset.label = label;
+    th.textContent = label + (th.dataset.key === sort.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '');
+    th.classList.toggle('sort-active', th.dataset.key === sort.key);
+  });
+}
 
 function renderCourts() {
   const rows = courts.filter(c => {
@@ -102,14 +160,15 @@ function renderCourts() {
     if (query && !(c.name + ' ' + c.host + ' ' + c.code).toLowerCase().includes(query.toLowerCase())) return false;
     return true;
   });
+  sortRows(rows);
   const tbody = $('#courts tbody');
   tbody.innerHTML = rows.map(c => {
     const up = Math.round(c.uptime24h * 100);
-    const bar = `<span class="uptime-bar"><i style="width:${up}%"></i></span> ${up}%`;
+    const bar = `<span class="up-cell"><span class="uptime-bar"><i style="width:${up}%"></i></span>${up}%</span>`;
     return `<tr data-code="${c.code}">
       <td><strong>${esc(c.name)}</strong><br><span style="color:var(--muted);font-size:12px">${esc(c.host)}</span></td>
       <td>${esc(c.courtType)}</td>
-      <td><span class="badge ${esc(c.status)}">${esc(c.status)}</span></td>
+      <td><span class="badge ${esc(c.status)}">${esc(STATUS_LABELS[c.status] ?? c.status)}</span></td>
       <td>${bar}</td>
       <td>${c.probes24h}</td>
       <td style="color:var(--bad)">${c.down24h}</td>
@@ -117,6 +176,7 @@ function renderCourts() {
       <td>${fmtTime(c.lastTs)}</td>
     </tr>`;
   }).join('');
+  renderSortIndicator();
 }
 
 function esc(s) {
@@ -131,7 +191,7 @@ function initFilters() {
     types.map(t => `<option>${esc(t)}</option>`).join('');
   const statuses = [...new Set(courts.map(c => c.status))].sort();
   $('#fStatus').innerHTML = '<option value="">Все статусы</option>' +
-    statuses.map(s => `<option>${esc(s)}</option>`).join('');
+    statuses.map(s => `<option value="${esc(s)}">${esc(STATUS_LABELS[s] ?? s)}</option>`).join('');
 }
 
 // ─── Инциденты ───
@@ -145,7 +205,7 @@ async function renderIncidents() {
       <td>${fmtTime(i.startTs)}</td>
       <td>${i.endTs ? fmtTime(i.endTs) : '<span class="badge BANNED">идёт сейчас</span>'}</td>
       <td>${fmtDur(d)}</td>
-      <td><span class="badge ${esc(i.reason)}">${esc(i.reason)}</span></td>
+      <td><span class="badge ${esc(i.reason)}">${esc(STATUS_LABELS[i.reason] ?? i.reason)}</span></td>
       <td>${i.probes}</td>
     </tr>`;
   }).join('');
@@ -159,7 +219,7 @@ async function openModal(code) {
   $('#mTitle').textContent = `${c.name} — ${c.host}`;
   $('#modal').hidden = false;
   const probes = await fetchJSON(`/api/history?code=${encodeURIComponent(code)}&days=7`);
-  const ts = probes.map(p => p.ts);
+  const ts = probes.map(p => p.ts / 1000);
   const data = probes.map(p => STATUS_OK.has(p.status) ? 1 : 0);
 
   if (mChart) { mChart.destroy(); mChart = null; }
@@ -173,11 +233,11 @@ async function openModal(code) {
       { stroke: '#4f8cff', width: 1, points: { show: false }, value: () => '' },
     ],
     axes: [
-      { stroke: '#8a94a3', grid: { stroke: '#232a36' } },
-      { stroke: '#8a94a3', grid: { stroke: '#232a36' }, values: () => '' },
+      { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, values: fmtAxis },
+      { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, values: () => '' },
     ],
     hooks: {
-      drawSeries: (u, sidx) => {
+      drawSeries: [(u, sidx) => {
         if (sidx !== 1) return;
         const { ctx } = u;
         ctx.save();
@@ -213,6 +273,16 @@ async function tick() {
 $('#fType').addEventListener('change', e => { typeFilter = e.target.value; renderCourts(); });
 $('#fStatus').addEventListener('change', e => { statusFilter = e.target.value; renderCourts(); });
 $('#q').addEventListener('input', e => { query = e.target.value; renderCourts(); });
+// сортировка по клику: asc → desc → сброс к дефолту (недоступные сверху)
+$('#courts thead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-key]');
+  if (!th) return;
+  const key = th.dataset.key;
+  if (sort.key === key && sort.dir === 1) sort = { key, dir: -1 };
+  else if (sort.key === key) sort = { key: 'status', dir: 1 };
+  else sort = { key, dir: 1 };
+  renderCourts();
+});
 $('#courts tbody').addEventListener('click', e => {
   const tr = e.target.closest('tr[data-code]');
   if (tr) openModal(tr.dataset.code);

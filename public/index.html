@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CourtPulse — доступность судов Пермского края</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="/libs/uPlot.min.css">
 <link rel="stylesheet" href="/style.css">
 </head>
@@ -30,8 +31,8 @@
   </div>
   <table class="courts" id="courts">
     <thead><tr>
-      <th>Суд</th><th>Тип</th><th>Статус</th><th>Uptime 24ч</th>
-      <th>Пробы</th><th>Падения</th><th>Отклик</th><th>Последняя проба</th>
+      <th data-key="name">Суд</th><th data-key="courtType">Тип</th><th data-key="status">Статус</th><th data-key="uptime24h">Uptime 24ч</th>
+      <th data-key="probes24h">Пробы</th><th data-key="down24h">Падения</th><th data-key="totalMs">Отклик</th><th data-key="lastTs">Последняя проба</th>
     </tr></thead>
     <tbody></tbody>
   </table>

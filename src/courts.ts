@@ -18,10 +18,15 @@ type RawCourt = {
 };
 
 const COURT_TYPE_LABEL: Record<string, string> = {
-  MS: 'Мировой', RS: 'Районный', OS: 'Областной', AS: 'Арбитражный',
+  MS: 'Мировой', RS: 'Районный', OS: 'Краевой', AS: 'Арбитражный',
   VS: 'Верховный', KAS: 'Кассационный', GV: 'Гарнизонный', OV: 'Окружной',
   KV: 'Военный', AV: 'Апелляционный', KJ: 'Кассационный', AJ: 'Апелляционный',
   AA: 'Апелляционный', AO: 'Апелляционный', UD: 'Прочее',
+};
+
+// Порядок отображения: краевой, арбитражный, районные, участки
+const TYPE_PRIORITY: Record<string, number> = {
+  'Краевой': 0, 'Арбитражный': 1, 'Районный': 2, 'Мировой': 3,
 };
 
 /** Извлечь host из website: http://1.perm.msudrf.ru → 1.perm.msudrf.ru */
@@ -41,19 +46,19 @@ export function loadRegionCourts(): CourtTarget[] {
   for (const c of raw.courts) {
     if (!c.code.startsWith(CONFIG.region)) continue;
     const host = hostFromWebsite(c.website);
-    if (!host || !/\.(sudrf|msudrf)\.ru$/.test(host)) continue;
+    if (!host || !/\.(sudrf|msudrf|arbitr)\.ru$/.test(host)) continue;
     if (seen.has(host)) continue;   // дубли поддоменов
     seen.add(host);
-    out.push({
-      code: c.code,
-      name: c.name.replace(/^Судебный участок №/, 'Участок №'),
-      courtType: COURT_TYPE_LABEL[c.court_type] ?? c.court_type,
-      host,
-      base: host.replace(/^[^.]+\./, ''),
-    });
+    const courtType = COURT_TYPE_LABEL[c.court_type] ?? c.court_type;
+    let name = c.name.replace(/^Судебный участок №/, 'Участок №');
+    // У мировых и районных «Пермского края» в конце — мусор (арбитражный/областной — оставить)
+    if (courtType === 'Мировой' || courtType === 'Районный') {
+      name = name.replace(/\s+Пермского края$/, '');
+    }
+    out.push({ code: c.code, name, courtType, host, base: host.replace(/^[^.]+\./, '') });
   }
 
-  out.sort((a, b) => a.code.localeCompare(b.code));
+  out.sort((a, b) => (TYPE_PRIORITY[a.courtType] ?? 9) - (TYPE_PRIORITY[b.courtType] ?? 9) || a.code.localeCompare(b.code));
   return out;
 }
 
