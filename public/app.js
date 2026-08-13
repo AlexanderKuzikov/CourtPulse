@@ -60,7 +60,7 @@ function renderKpis() {
     <div class="kpi bad"><div class="l">Недоступны сейчас</div><div class="v">${bad}</div></div>
     <div class="kpi"><div class="l">Uptime 24ч</div><div class="v">${uptime}%</div></div>
     <div class="kpi"><div class="l">OK за 7 дней</div><div class="v">${ok7}%</div></div>
-    <div class="kpi"><div class="l">Пробы 24ч</div><div class="v">${s.probes24h}<span class="l" style="font-size:11px"> (падений ${s.bad24h})</span></div></div>
+    <div class="kpi"><div class="l">Пробы 24ч<br>падений ${s.bad24h}</div><div class="v">${s.probes24h}</div></div>
     <div class="kpi"><div class="l">Медиана отклика</div><div class="v">${fmtMs(s.medianMs)}</div></div>`;
   $('#kpis').innerHTML = html;
   $('#ticker').textContent = `Обновлено: ${fmtTime(s.now)} · последняя волна: ${fmtTime(s.lastWave)}`;
@@ -140,7 +140,10 @@ function sortRows(rows) {
     else if (key === 'courtType') r = ((TYPE_PRIORITY[a.courtType] ?? 9) - (TYPE_PRIORITY[b.courtType] ?? 9)) * dir;
     else if (key === 'status') r = ((STATUS_SEVERITY[a.status] ?? 9) - (STATUS_SEVERITY[b.status] ?? 9)) * dir;
     else r = cmpNumeric(a, b, key, dir);
-    return r !== 0 ? r : a.code.localeCompare(b.code);
+    // При равенстве — приоритет типов (краевой, арбитражный, районные, участки), затем код
+    return r !== 0
+      ? r
+      : (TYPE_PRIORITY[a.courtType] ?? 9) - (TYPE_PRIORITY[b.courtType] ?? 9) || a.code.localeCompare(b.code);
   });
 }
 
@@ -249,7 +252,7 @@ async function openModal(code) {
           ctx.fillRect(x - 2, yTop, 4, yBot - yTop);
         }
         ctx.restore();
-      },
+      }],
     },
   };
   mChart = new uPlot(opts, [ts, data], el);
