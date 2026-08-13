@@ -169,7 +169,7 @@ function renderCourts() {
     const up = Math.round(c.uptime24h * 100);
     const bar = `<span class="up-cell"><span class="uptime-bar"><i style="width:${up}%"></i></span>${up}%</span>`;
     return `<tr data-code="${c.code}">
-      <td><strong>${esc(c.name)}</strong><br><span style="color:var(--muted);font-size:12px">${esc(c.host)}</span></td>
+      <td><strong>${esc(c.name)}</strong><br><span style="color:var(--muted);font-size:12px">${esc(c.code)} · <a href="https://${esc(c.host)}/" target="_blank" rel="noopener">${esc(c.host)}</a></span></td>
       <td>${esc(c.courtType)}</td>
       <td><span class="badge ${esc(c.status)}">${esc(STATUS_LABELS[c.status] ?? c.status)}</span></td>
       <td>${bar}</td>

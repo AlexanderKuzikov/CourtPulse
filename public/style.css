@@ -70,6 +70,8 @@ tbody tr { cursor: pointer; }
 
 .up-cell { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .uptime-bar { width: 90px; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; flex-shrink: 0; }
+#courts a { color: var(--accent); text-decoration: none; }
+#courts a:hover { text-decoration: underline; }
 .uptime-bar i { display: block; height: 100%; background: var(--ok); }
 .uptime-bar i.down { background: var(--bad); }
 
