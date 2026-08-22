@@ -38,10 +38,16 @@ export class Scheduler {
     }
 
     void this.runWave(false);
+    // wall-clock интервал 12 мин (старт→старт), без дрейфа; если волна дольше интервала — пропуск guard'ом
+    let nextStart = Date.now() + CONFIG.probeIntervalMs;
     const scheduleNext = () => {
+      const delay = Math.max(1_000, nextStart - Date.now());
       setTimeout(() => {
+        nextStart += CONFIG.probeIntervalMs;
+        // если отстали больше чем на интервал (волна была долгой) — сбросить к now+interval
+        if (nextStart < Date.now()) nextStart = Date.now() + CONFIG.probeIntervalMs;
         void this.runWave(false).finally(scheduleNext);
-      }, CONFIG.probeIntervalMs);
+      }, delay);
     };
     scheduleNext();
   }
