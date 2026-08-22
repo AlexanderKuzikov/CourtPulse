@@ -27,3 +27,11 @@
 **Решение:** Валидация тела (32КБ cap): `G1_PARTS__NAMESS`/`sud_delo`/`name_op` → OK, `captcha/kcaptcha/проверочный код` → BANNED, `<500B/без маркера` → HTTP_ERR. `concurrency 2`, `interval 15мин`, `gap 3с`, `bannedUntil 45мин` (3 волны, синтетический `BANNED 429` без сети). `setInterval`→wall-clock `setTimeout` (старт→старт). Rate-limit `/api/history` 60/мин/20k cap. Пауза 60мин через `systemd-run --on-active`.
 
 **Trade-off:** Теряем `~40%` QPS и 12мин→15мин, но снижаем риск бана; BANNED-хосты не дергаем 45мин (ложно-отрицательные возможны, но лучше чем эскалация бана).
+
+## 2026-08-22: ADR-004 — 301 и arbitr + график
+
+**Контекст:** Все районные/краевой `HTTP_ERR` (301 `*.perm.sudrf.ru → *--perm.sudrf.ru`), `*.arbitr.ru` 404 на `sud_delo`, график Y-ось `c e j b o [` (`[object Object]%`).
+
+**Решение:** `probePath()` (`arbitr→/`), `httpGetFollow` 3 редиректа внутри ГАС (валидация `Location`), `arbitr` маркер `arbitr/bytes>1000`. График `values:(u,vals)=>vals.map(v=>v+'%')` + `chart7.setData` каждую минуту (было `if(!chart7)`).
+
+**Trade-off:** +1 `RTT` на 301 (районные), `arbitr` `sud_delo` не проверяем (только `/`), график тянет `/api/history` каждую минуту (20k cap).

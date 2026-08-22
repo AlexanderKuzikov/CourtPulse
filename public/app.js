@@ -68,8 +68,7 @@ function renderKpis() {
 
 // ─── График 7 дней: доля OK по 15-мин бакетам ──
 let chart7 = null;
-async function renderChart7() {
-  const probes = await fetchJSON('/api/history?days=7');
+function buildChart7Data(probes) {
   const buckets = new Map();
   const BUCKET = 15 * 60 * 1000;
   const now = Date.now();
@@ -83,7 +82,15 @@ async function renderChart7() {
   }
   const ts = [...buckets.keys()].sort((a, b) => a - b);
   const data = ts.map(t => { const c = buckets.get(t); return c.total ? c.ok / c.total * 100 : null; });
-
+  return [ts.map(t => t / 1000), data];
+}
+async function renderChart7() {
+  const probes = await fetchJSON('/api/history?days=7');
+  const [xs, ys] = buildChart7Data(probes);
+  if (chart7) {
+    chart7.setData([xs, ys]);
+    return;
+  }
   const opts = {
     width: document.querySelector('#chart7').clientWidth,
     height: 220,
@@ -99,11 +106,10 @@ async function renderChart7() {
     ],
     axes: [
       { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, size: 40, values: fmtAxis },
-      { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, values: v => v + '%', size: 44 },
+      { stroke: '#5b6570', grid: { stroke: '#e2e8f0' }, values: (u, vals) => vals.map(v => v + '%'), size: 44 },
     ],
   };
-  const u = new uPlot(opts, [ts.map(t => t / 1000), data], $('#chart7'));
-  // ресайз
+  const u = new uPlot(opts, [xs, ys], $('#chart7'));
   const ro = new ResizeObserver(() => {
     const w = document.querySelector('#chart7').clientWidth;
     if (w > 200) u.setSize({ width: w, height: 220 });
@@ -262,7 +268,7 @@ async function openModal(code) {
 async function tick() {
   [summary, courts] = await Promise.all([fetchJSON('/api/summary'), fetchJSON('/api/courts')]);
   renderKpis();
-  if (!chart7) void renderChart7();
+  void renderChart7();
   if ($('#courts tbody').children.length === 0) {
     initFilters();
     renderCourts();

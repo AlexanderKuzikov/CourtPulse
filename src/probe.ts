@@ -49,11 +49,15 @@ function tlsHandshake(sock: Socket, host: string, timeoutMs: number): Promise<So
   });
 }
 
-function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): Promise<{ code: number; bytes: number; body: string }> {
+function probePath(host: string): string {
+  return host.endsWith('.arbitr.ru') ? '/' : '/modules.php?name=sud_delo';
+}
+
+function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): Promise<{ code: number; bytes: number; body: string; location: string | null }> {
   const fn = tls ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
     const req = fn({
-      host, port, path: '/modules.php?name=sud_delo', method: 'GET',
+      host, port, path: probePath(host), method: 'GET',
       agent: false, // CR: глобальный keep-alive агент держит сокеты — утечка FD
       headers: {
         'User-Agent': CONFIG.userAgent,
@@ -66,6 +70,7 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
       const chunks: Buffer[] = [];
       const CAP = 32 * 1024;
       let capped = false;
+      const location = (res.headers.location as string | undefined) ?? null;
       res.on('data', c => {
         bytes += c.length;
         if (!capped) {
@@ -76,7 +81,7 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
       res.on('end', () => {
         clearTimeout(timer);
         const body = Buffer.concat(chunks).toString('utf-8').slice(0, 16_000);
-        resolve({ code: res.statusCode ?? 0, bytes, body });
+        resolve({ code: res.statusCode ?? 0, bytes, body, location });
       });
       res.on('error', e => { clearTimeout(timer); reject(e); });
     });
@@ -85,6 +90,26 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
     req.on('error', e => { clearTimeout(timer); reject(e); });
     req.end();
   });
+}
+
+async function httpGetFollow(host: string, timeoutMs: number): Promise<{ code: number; bytes: number; body: string; finalHost: string }> {
+  let curHost = host;
+  for (let i = 0; i < 3; i++) {
+    const h = await httpGet(curHost, 443, timeoutMs, true);
+    if (h.code >= 300 && h.code < 400 && h.location) {
+      try {
+        const u = new URL(h.location, `https://${curHost}`);
+        if (!/\.(sudrf|msudrf|arbitr)\.ru$/.test(u.hostname)) return { code: h.code, bytes: h.bytes, body: h.body, finalHost: curHost };
+        // 301 на тот же search-модуль (dzerjin.perm.sudrf.ru → dzerjin--perm.sudrf.ru) — следуем реальным запросом
+        curHost = u.hostname;
+        // если редирект уже содержит sud_delo — следующий httpGet вернёт тело для валидации
+        continue;
+      } catch { return { code: h.code, bytes: h.bytes, body: h.body, finalHost: curHost }; }
+    }
+    return { code: h.code, bytes: h.bytes, body: h.body, finalHost: curHost };
+  }
+  const last = await httpGet(curHost, 443, timeoutMs, true);
+  return { code: last.code, bytes: last.bytes, body: last.body, finalHost: curHost };
 }
 
 export async function probeCourt(code: string, host: string): Promise<ProbeResult> {
@@ -125,13 +150,19 @@ export async function probeCourt(code: string, host: string): Promise<ProbeResul
     return { ...base, status: 'TLS_FAIL', totalMs: Date.now() - start };
   }
 
-  // 4. HTTP GET /modules.php?name=sud_delo — валидируем тело, а не только код
+  // 4. HTTP GET /modules.php?name=sud_delo — валидируем тело, следуем 301 (dzerjin.perm.sudrf.ru → dzerjin--perm.sudrf.ru)
   try {
-    const h = await httpGet(host, 443, CONFIG.httpTimeoutMs, true);
+    const h = await httpGetFollow(host, CONFIG.httpTimeoutMs);
     base.httpCode = h.code;
     base.bytes = h.bytes;
+    // обновляем host если был редирект (для state)
+    if (h.finalHost !== host) base.host = h.finalHost;
     if (h.code === 403 || h.code === 429) {
       return { ...base, status: 'BANNED', totalMs: Date.now() - start };
+    }
+    if (h.code >= 300 && h.code < 400) {
+      // редирект без sud_delo — считаем живым, если внутри ГАС
+      return { ...base, status: 'OK', totalMs: Date.now() - start };
     }
     if (h.code < 200 || h.code >= 400) {
       return { ...base, status: 'HTTP_ERR', totalMs: Date.now() - start };
@@ -139,9 +170,16 @@ export async function probeCourt(code: string, host: string): Promise<ProbeResul
     // 200 — проверяем что это форма поиска, а не заглушка/капча-страница
     const body = h.body.toLowerCase();
     const isCaptcha = body.includes('captcha') || body.includes('kcaptcha') || body.includes('проверочный код');
-    if (isCaptcha) return { ...base, status: 'BANNED', totalMs: Date.now() - start };
-    const hasSearchMarker = body.includes('g1_parts__namess') || body.includes('sud_delo') || body.includes('name_op') || body.includes('modules.php');
+    const isArbitr = host.endsWith('.arbitr.ru') || h.finalHost.endsWith('.arbitr.ru');
+    const hasSearchMarker = isArbitr
+      ? (body.includes('arbitr') || h.bytes > 1000)
+      : (body.includes('g1_parts__namess') || body.includes('sud_delo') || body.includes('name_op') || body.includes('modules.php'));
     if (!hasSearchMarker || h.bytes < 500) return { ...base, status: 'HTTP_ERR', totalMs: Date.now() - start };
+    // msudrf: капча — штатная (kcaptchaForm раз на сессию), не WAF-бан; считаем живым
+    if (isCaptcha) {
+      if (host.endsWith('.msudrf.ru') || h.finalHost.endsWith('.msudrf.ru')) return { ...base, status: 'OK', totalMs: Date.now() - start };
+      return { ...base, status: 'BANNED', totalMs: Date.now() - start };
+    }
     return { ...base, status: 'OK', totalMs: Date.now() - start };
   } catch (e) {
     // CR: классифицируем по тексту — обрыв соединения ≠ таймаут
