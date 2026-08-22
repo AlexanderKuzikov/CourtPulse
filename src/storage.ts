@@ -1,5 +1,5 @@
 // Хранилище: JSONL-пробы по дням, снапшот последних статусов, инциденты
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONFIG } from './config.ts';
 import type { ProbeResult } from './probe.ts';
@@ -28,6 +28,21 @@ function writeJsonAtomic(file: string, data: unknown): void {
 
 export function ensureDirs(): void {
   mkdirSync(probesDir(), { recursive: true });
+  cleanupOldProbes(30);
+}
+
+export function cleanupOldProbes(maxDays = 30): void {
+  try {
+    const cutoff = Date.now() - maxDays * 86_400_000;
+    for (const f of readdirSync(probesDir())) {
+      if (!f.endsWith('.jsonl')) continue;
+      const day = f.slice(0, 10);
+      const fileTime = new Date(day + 'T00:00:00Z').getTime();
+      if (fileTime < cutoff) {
+        unlinkSync(join(probesDir(), f));
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 export function appendProbe(p: ProbeResult): void {

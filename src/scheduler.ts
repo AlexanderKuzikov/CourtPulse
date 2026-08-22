@@ -1,5 +1,6 @@
-// Оркестратор: волны проб каждые 15 минут + детект инцидентов
+// Оркестратор: волны проб каждые 12 минут + детект инцидентов
 import { CONFIG } from './config.ts';
+import { cleanupOldProbes } from './storage.ts';
 import { loadRegionCourts, type CourtTarget } from './courts.ts';
 import { probeCourt, type ProbeResult } from './probe.ts';
 import {
@@ -37,7 +38,12 @@ export class Scheduler {
     }
 
     void this.runWave(false);
-    setInterval(() => void this.runWave(false), CONFIG.probeIntervalMs);
+    const scheduleNext = () => {
+      setTimeout(() => {
+        void this.runWave(false).finally(scheduleNext);
+      }, CONFIG.probeIntervalMs);
+    };
+    scheduleNext();
   }
 
   private async runWave(skipJitter = false): Promise<RunStats> {
@@ -83,6 +89,7 @@ export class Scheduler {
 
       stats.ms = Date.now() - t0;
       this.saveAll();
+      try { cleanupOldProbes(30); } catch {}
       invalidateApiCache();
       console.log(`[pulse] волна: ${stats.total} судов, ok=${stats.ok}, banned=${stats.banned}, bad=${stats.bad}, ${stats.ms}мс`);
       return stats;

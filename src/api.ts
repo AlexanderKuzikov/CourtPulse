@@ -30,16 +30,40 @@ const CACHE_TTL_MS = 45_000;
 
 function getCached<T>(key: 'summary' | 'courts', build: () => T): T {
   if (!cache || Date.now() - cache.ts > CACHE_TTL_MS) {
-    cache = { ts: Date.now(), summary: null, courts: null };
+    cache = { ts: Date.now(), summary: null, courts: null } as typeof cache;
   }
-  if (cache[key] == null) cache[key] = build();
+  if (cache[key] == null) cache[key] = build() as never;
   return cache[key] as T;
+}
+
+// Простой in-memory rate-limit: 60 req/мин на IP для тяжёлых /api/history
+const rl = new Map<string, number[]>();
+function rateLimitOk(ip: string, limit = 60, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const arr = (rl.get(ip) ?? []).filter(t => now - t < windowMs);
+  if (arr.length >= limit) { rl.set(ip, arr); return false; }
+  arr.push(now); rl.set(ip, arr);
+  if (rl.size > 500) { // защита от разрастания
+    const first = rl.keys().next().value as string;
+    rl.delete(first);
+  }
+  return true;
 }
 
 export function startApi(sched: Scheduler): void {
   const courts = loadRegionCourts();
 
   const server = createServer((req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      });
+      res.end();
+      return;
+    }
+
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const path = url.pathname;
 
@@ -47,9 +71,17 @@ export function startApi(sched: Scheduler): void {
       if (path === '/api/summary') return json(res, getCached('summary', () => summary(courts)));
       if (path === '/api/courts') return json(res, getCached('courts', () => buildCourtRows(courts, loadState(), readProbes(1))));
       if (path === '/api/history') {
+        const ip = req.socket.remoteAddress ?? 'unknown';
+        if (!rateLimitOk(ip)) return json(res, { error: 'rate limited' }, 429);
         const code = url.searchParams.get('code') ?? '';
         const days = clampDays(url.searchParams.get('days'));
-        return json(res, readProbes(days, code));
+        const limitRaw = Number(url.searchParams.get('limit') ?? 0);
+        const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 20_000) : 0;
+        let rows = readProbes(days, code);
+        if (limit && rows.length > limit) rows = rows.slice(-limit);
+        // жёсткий потолок без limit — защита от 100 МБ ответа
+        if (!limit && rows.length > 20_000) rows = rows.slice(-20_000);
+        return json(res, rows);
       }
       if (path === '/api/incidents') {
         const days = clampDays(url.searchParams.get('days'));
@@ -126,7 +158,13 @@ function summary(courts: ReturnType<typeof loadRegionCourts>) {
 }
 
 function json(res: import('node:http').ServerResponse, data: unknown, code = 200): void {
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
+  });
   res.end(JSON.stringify(data));
 }
 

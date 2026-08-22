@@ -1,6 +1,7 @@
 // CourtPulse — мониторинг доступности сайтов судов ГАС «Правосудие»
 import { Scheduler } from './scheduler.ts';
 import { startApi } from './api.ts';
+import { CONFIG } from './config.ts';
 
 const once = process.argv.includes('--once');
 // Поддерживаем обе формы: --limit=5 и --limit 5
@@ -12,6 +13,6 @@ sched.start(once, limit);
 
 if (!once) {
   startApi(sched);
-  console.log('[pulse] мониторинг запущен (регион 59, интервал 15 мин)');
+  console.log(`[pulse] мониторинг запущен (регион ${CONFIG.region}, интервал ${CONFIG.probeIntervalMs / 60000} мин)`);
 }
 

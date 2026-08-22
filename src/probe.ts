@@ -1,4 +1,4 @@
-// Проба доступности: DNS → TCP → TLS → HTTP GET главной страницы
+// Проба доступности: DNS → TCP → TLS → HTTP GET модуля поиска (/modules.php?name=sud_delo)
 import { lookup } from 'node:dns/promises';
 import { connect as tlsConnect } from 'node:tls';
 import { connect as netConnect, type Socket } from 'node:net';
@@ -49,11 +49,11 @@ function tlsHandshake(sock: Socket, host: string, timeoutMs: number): Promise<So
   });
 }
 
-function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): Promise<{ code: number; bytes: number }> {
+function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): Promise<{ code: number; bytes: number; body: string }> {
   const fn = tls ? httpsRequest : httpRequest;
   return new Promise((resolve, reject) => {
     const req = fn({
-      host, port, path: '/', method: 'GET',
+      host, port, path: '/modules.php?name=sud_delo', method: 'GET',
       agent: false, // CR: глобальный keep-alive агент держит сокеты — утечка FD
       headers: {
         'User-Agent': CONFIG.userAgent,
@@ -63,8 +63,21 @@ function httpGet(host: string, port: number, timeoutMs: number, tls: boolean): P
       rejectUnauthorized: false,
     }, res => {
       let bytes = 0;
-      res.on('data', c => { bytes += c.length; });
-      res.on('end', () => { clearTimeout(timer); resolve({ code: res.statusCode ?? 0, bytes }); });
+      const chunks: Buffer[] = [];
+      const CAP = 32 * 1024;
+      let capped = false;
+      res.on('data', c => {
+        bytes += c.length;
+        if (!capped) {
+          if (bytes > CAP) { capped = true; }
+          else chunks.push(c as Buffer);
+        }
+      });
+      res.on('end', () => {
+        clearTimeout(timer);
+        const body = Buffer.concat(chunks).toString('utf-8').slice(0, 16_000);
+        resolve({ code: res.statusCode ?? 0, bytes, body });
+      });
       res.on('error', e => { clearTimeout(timer); reject(e); });
     });
     // Абсолютный дедлайн (не idle): destroy обязательно, чтобы не течь сокетами
@@ -91,11 +104,11 @@ export async function probeCourt(code: string, host: string): Promise<ProbeResul
     return { ...base, status: 'DNS_FAIL', totalMs: Date.now() - start };
   }
 
-  // 2. TCP
+  // 2. TCP — внутренний таймер уже есть, внешний withTimeout не нужен (утечка FD)
   let sock: Socket;
   try {
     const cStart = Date.now();
-    sock = await withTimeout(tcpConnect(host, 443, CONFIG.connectTimeoutMs), CONFIG.connectTimeoutMs + 500, 'tcp');
+    sock = await tcpConnect(host, 443, CONFIG.connectTimeoutMs);
     base.connectMs = Date.now() - cStart;
   } catch {
     return { ...base, status: 'CONNECT_FAIL', totalMs: Date.now() - start };
@@ -104,24 +117,32 @@ export async function probeCourt(code: string, host: string): Promise<ProbeResul
   // 3. TLS (кривые сертификаты ГАС — rejectUnauthorized:false)
   try {
     const tStart = Date.now();
-    const tlsSock = await withTimeout(tlsHandshake(sock, host, CONFIG.tlsTimeoutMs), CONFIG.tlsTimeoutMs + 500, 'tls');
+    const tlsSock = await tlsHandshake(sock, host, CONFIG.tlsTimeoutMs);
     base.tlsMs = Date.now() - tStart;
     tlsSock.destroy();
   } catch {
-    sock.destroy();
+    try { sock.destroy(); } catch {}
     return { ...base, status: 'TLS_FAIL', totalMs: Date.now() - start };
   }
 
-  // 4. HTTP GET /
+  // 4. HTTP GET /modules.php?name=sud_delo — валидируем тело, а не только код
   try {
-    const h = await withTimeout(httpGet(host, 443, CONFIG.httpTimeoutMs, true), CONFIG.httpTimeoutMs + 500, 'http');
+    const h = await httpGet(host, 443, CONFIG.httpTimeoutMs, true);
     base.httpCode = h.code;
     base.bytes = h.bytes;
-    const status: ProbeStatus =
-      h.code === 403 || h.code === 429 ? 'BANNED'
-      : h.code >= 200 && h.code < 400 ? 'OK'
-      : 'HTTP_ERR';
-    return { ...base, status, totalMs: Date.now() - start };
+    if (h.code === 403 || h.code === 429) {
+      return { ...base, status: 'BANNED', totalMs: Date.now() - start };
+    }
+    if (h.code < 200 || h.code >= 400) {
+      return { ...base, status: 'HTTP_ERR', totalMs: Date.now() - start };
+    }
+    // 200 — проверяем что это форма поиска, а не заглушка/капча-страница
+    const body = h.body.toLowerCase();
+    const isCaptcha = body.includes('captcha') || body.includes('kcaptcha') || body.includes('проверочный код');
+    if (isCaptcha) return { ...base, status: 'BANNED', totalMs: Date.now() - start };
+    const hasSearchMarker = body.includes('g1_parts__namess') || body.includes('sud_delo') || body.includes('name_op') || body.includes('modules.php');
+    if (!hasSearchMarker || h.bytes < 500) return { ...base, status: 'HTTP_ERR', totalMs: Date.now() - start };
+    return { ...base, status: 'OK', totalMs: Date.now() - start };
   } catch (e) {
     // CR: классифицируем по тексту — обрыв соединения ≠ таймаут
     const msg = String((e as Error | undefined)?.message ?? e);
