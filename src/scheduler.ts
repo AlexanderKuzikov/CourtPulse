@@ -16,6 +16,8 @@ export class Scheduler {
   private state = loadState();
   private incidents = loadIncidents();
   private running = false;
+  // BANNED-cooldown: не стучим в забаненный хост 45 мин (3 волны по 15)
+  private bannedUntil = new Map<string, number>();
   onProbe?: (p: ProbeResult, court: CourtTarget) => void;
 
   start(once = false, limit = 0): void {
@@ -72,10 +74,25 @@ export class Scheduler {
         while (idx < queue.length) {
           const court = queue[idx++];
           if (!court) continue;
+          // cooldown: если хост в BANNED-отстое — пропускаем реальный запрос
+          const until = this.bannedUntil.get(court.code) ?? 0;
+          if (until > Date.now()) {
+            const probe: ProbeResult = {
+              ts: Date.now(), code: court.code, host: court.host,
+              status: 'BANNED', httpCode: 429, dnsMs: null, connectMs: null, tlsMs: null, totalMs: 0, bytes: null,
+            };
+            stats.total++; stats.banned++;
+            appendProbe(probe);
+            this.state[court.code] = { status: probe.status, ts: probe.ts, httpCode: probe.httpCode, totalMs: probe.totalMs };
+            saveState(this.state);
+            this.updateIncidents(court, probe);
+            await sleep(CONFIG.gapMinMs);
+            continue;
+          }
           const probe = await probeCourt(court.code, court.host);
           stats.total++;
-          if (probe.status === 'OK') stats.ok++;
-          else if (probe.status === 'BANNED') stats.banned++;
+          if (probe.status === 'OK') { stats.ok++; this.bannedUntil.delete(court.code); }
+          else if (probe.status === 'BANNED') { stats.banned++; this.bannedUntil.set(court.code, Date.now() + 45 * 60 * 1000); }
           else stats.bad++;
 
           appendProbe(probe);
